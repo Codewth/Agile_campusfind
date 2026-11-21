@@ -109,6 +109,22 @@ test('monthly summary is admin-only, aggregate and validates month',async()=>{
   assert.equal(csv.includes('Alice'),false);
   assert.equal(csv.includes('Bob'),false);
 });
+test('private handover staff checklist requires accepted claim and admin approval',async()=>{
+  const uri='/api/admin/handovers',data={reportId,claimId,identityConfirmed:true,descriptionConfirmed:true};
+  assert.equal((await request('POST',uri,data,'bob')).httpStatus,403);
+  assert.equal((await request('POST',uri,{...data,identityConfirmed:false},'alice')).httpStatus,400);
+  assert.equal((await request('GET',uri,null,'bob')).httpStatus,403);
+  const approved=await request('POST',uri,data,'alice');
+  assert.equal(approved.httpStatus,201);
+  assert.equal(approved.signoff.reportId,reportId);
+  assert.equal(approved.signoff.claimId,claimId);
+  assert.ok(approved.signoff.signedAt);
+  assert.equal((await request('POST',uri,data,'alice')).httpStatus,409);
+  const records=await request('GET',uri,null,'alice');
+  assert.equal(records.httpStatus,200);
+  assert.ok(records.signoffs.some(x=>x.claimId===claimId&&x.identityConfirmed&&x.descriptionConfirmed));
+  assert.equal(JSON.stringify(records).includes('bob@example.edu'),false);
+});
 test('delete cascades claims, logout revokes the session',async()=>{
   assert.equal((await request('DELETE',`/api/reports/${reportId}`,null,'alice')).httpStatus,200);
   assert.equal((await request('GET',`/api/reports/${reportId}`)).httpStatus,404);
