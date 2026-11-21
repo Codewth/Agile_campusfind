@@ -256,6 +256,21 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
           return reply(res,201,{ok:true,message:'Flag recorded for campus review.'});
         }
       }
+      if(path==='/api/admin/summary.csv'&&method==='GET'){
+        requireAdmin(req);
+        const month=url.searchParams.get('month')||new Date().toISOString().slice(0,7);
+        if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('Invalid month; use YYYY-MM.',400);
+        const totals=db.prepare(`SELECT COUNT(*) total,
+          SUM(CASE WHEN type='lost' THEN 1 ELSE 0 END) lost,
+          SUM(CASE WHEN type='found' THEN 1 ELSE 0 END) found,
+          SUM(CASE WHEN status='resolved' THEN 1 ELSE 0 END) resolved,
+          SUM(CASE WHEN status!='resolved' THEN 1 ELSE 0 END) unresolved
+          FROM reports WHERE substr(created_at,1,7)=?`).get(month);
+        const csv='month,total,lost,found,resolved,unresolved\\n'
+          +[month,totals.total,totals.lost,totals.found,totals.resolved,totals.unresolved].map(v=>v??0).join(',')+'\\n';
+        res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="campusfind-summary-${month}.csv"`,'Cache-Control':'private, no-store'});
+        return res.end(csv);
+      }
       if(path==='/api/admin/flags'&&method==='GET'){
         requireAdmin(req);const rows=db.prepare(`SELECT f.*,r.title report_title FROM flags f JOIN reports r ON r.id=f.report_id ORDER BY f.created_at DESC LIMIT 200`).all();
         return reply(res,200,{flags:rows.map(f=>({id:f.id,reportId:f.report_id,reportTitle:f.report_title,reason:f.reason,status:f.status,createdAt:f.created_at}))});
