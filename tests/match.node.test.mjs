@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { scoreMatch, findMatches } from '../src/lib/match.js';
+const lost={id:'l1',type:'lost',status:'open',title:'Black wireless earbuds',category:'Electronics',colour:'Black',location:'Library',incidentDate:'2026-10-10',description:'Charging case',keywords:'wireless'};
+const found={...lost,id:'f1',type:'found'};
+test('identical valid cross-type report scores 100',()=>{const m=scoreMatch(lost,found);assert.equal(m.score,100);assert.ok(m.reasons.length>=4);});
+test('same-type report excluded',()=>assert.equal(scoreMatch(lost,{...found,type:'lost'}),null));
+test('resolved and claimed reports excluded',()=>{assert.equal(scoreMatch(lost,{...found,status:'resolved'}),null);assert.equal(scoreMatch(lost,{...found,status:'claimed'}),null);});
+test('same item excluded',()=>assert.equal(scoreMatch(lost,lost),null));
+test('relevant score ranks first',()=>{const weaker={...found,id:'f2',title:'Silver keys',category:'Keys',colour:'Red',location:'Hostel',incidentDate:'2026-09-01',description:'',keywords:''};const matches=findMatches(lost,[weaker,found],0);assert.equal(matches[0].item.id,'f1');});
+test('low scores removed from default threshold',()=>{const weaker={...found,id:'f2',title:'Silver keys',category:'Keys',colour:'Red',location:'Hostel',incidentDate:'2026-09-01',description:'',keywords:''};assert.deepEqual(findMatches(lost,[weaker]),[]);});
+test('missing optional text does not introduce undefined keyword',()=>{const simple={...lost,id:'s1',description:undefined,keywords:undefined};const m=scoreMatch(simple,{...simple,id:'s2',type:'found'});assert.equal(m.reasons.join(' ').includes('undefined'),false);});
