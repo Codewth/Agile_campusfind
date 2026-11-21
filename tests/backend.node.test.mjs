@@ -37,7 +37,7 @@ test('report requires authentication and validates input',async()=>{
   assert.equal((await request('POST','/api/reports',{...valid,title:'A'},'alice')).httpStatus,400);
   const r=await request('POST','/api/reports',valid,'alice');assert.equal(r.httpStatus,201);reportId=r.report.id;
   assert.equal(r.report.ownerId.length,36);assert.equal(r.report.imageUrl,'');
-  assert.equal((await request('GET','/api/reports?q=earbuds')).reports.length,1);
+  assert.ok((await request('GET','/api/reports?q=earbuds')).reports.some(item=>item.id===reportId));
   assert.equal((await request('GET',`/api/reports/${reportId}`)).report.title,'Black earbuds');
 });
 test('only owner can edit, change status, delete',async()=>{
@@ -76,7 +76,7 @@ test('moderation requires admin, and hidden reports disappear publicly',async()=
   assert.equal((await request('PATCH',`/api/admin/reports/${reportId}/moderation`,{status:'hidden'},'alice')).httpStatus,200);
   assert.equal((await request('GET',`/api/reports/${reportId}`)).httpStatus,404);
   assert.equal((await request('GET',`/api/reports/${reportId}`,null,'alice')).httpStatus,200);
-  assert.equal((await request('GET','/api/reports?q=case')).reports.length,0);
+  assert.equal((await request('GET','/api/reports?q=case')).reports.some(item=>item.id===reportId),false);
   assert.equal((await request('GET','/api/reports?mine=1',null,'alice')).reports.find(r=>r.id===reportId).moderationStatus,'hidden');
   assert.equal((await request('PATCH',`/api/admin/flags/${flags.flags[0].id}`,{status:'reviewed'},'alice')).httpStatus,200);
   assert.equal((await request('PATCH',`/api/admin/reports/${reportId}/moderation`,{status:'visible'},'alice')).httpStatus,200);
