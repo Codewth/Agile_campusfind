@@ -5,7 +5,8 @@ mkdirSync('artifacts', { recursive: true });
 const browser=await chromium.launch({ headless: true });
 const results=[];
 for(const route of ['/', '/browse', '/login', '/register']){
-  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
+  const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1});
+  const page=await context.newPage();
   await page.goto('http://127.0.0.1:5173'+route,{waitUntil:'networkidle'});
   const horizontalOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+4);
   await page.keyboard.press('Tab');
@@ -16,7 +17,7 @@ for(const route of ['/', '/browse', '/login', '/register']){
   const violations=audit.violations.map(x=>({id:x.id,impact:x.impact,description:x.description,selectors:x.nodes.slice(0,3).map(n=>n.target.join(' '))}));
   results.push({route,horizontalOverflow,keyboardFocus,violations});
   console.log(JSON.stringify(results.at(-1)));
-  await page.close();
+  await context.close();
 }
 await browser.close();
 writeFileSync('artifacts/mobile-accessibility-audit.json',JSON.stringify(results,null,2));
