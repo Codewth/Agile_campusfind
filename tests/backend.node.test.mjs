@@ -40,6 +40,16 @@ test('report requires authentication and validates input',async()=>{
   assert.ok((await request('GET','/api/reports?q=earbuds')).reports.some(item=>item.id===reportId));
   assert.equal((await request('GET',`/api/reports/${reportId}`)).report.title,'Black earbuds');
 });
+test('public listing does not expose reporter contact details',async()=>{
+  const item=(await request('GET',`/api/reports/${reportId}`)).report;
+  assert.equal(item.id,reportId);
+  assert.equal('email' in item,false);
+  assert.equal('reporterEmail' in item,false);
+  assert.equal('phone' in item,false);
+  assert.equal('studentId' in item,false);
+  assert.equal('claims' in item,false);
+  assert.equal('flags' in item,false);
+});
 test('only owner can edit, change status, delete',async()=>{
   assert.equal((await request('PATCH',`/api/reports/${reportId}`,valid,'bob')).httpStatus,403);
   assert.equal((await request('PATCH',`/api/reports/${reportId}/status`,{status:'resolved'},'bob')).httpStatus,403);
