@@ -92,6 +92,23 @@ test('moderation requires admin, and hidden reports disappear publicly',async()=
   assert.equal((await request('PATCH',`/api/admin/reports/${reportId}/moderation`,{status:'visible'},'alice')).httpStatus,200);
   assert.equal((await request('GET',`/api/reports/${reportId}`)).httpStatus,200);
 });
+test('monthly summary is admin-only, aggregate and validates month',async()=>{
+  const month=new Date().toISOString().slice(0,7);
+  assert.equal((await request('GET',`/api/admin/summary.csv?month=${month}`,null,'bob')).httpStatus,403);
+  assert.equal((await request('GET','/api/admin/summary.csv?month=2026-99',null,'alice')).httpStatus,400);
+  const r=await fetch(origin+`/api/admin/summary.csv?month=${month}`,{headers:{Cookie:cookies.alice}});
+  assert.equal(r.status,200);
+  assert.match(r.headers.get('content-type'),/text\/csv/);
+  const csv=await r.text();
+  const rows=csv.trim().split('\n');
+  assert.equal(rows[0],'month,total,lost,found,resolved,unresolved');
+  assert.equal(rows.length,2);
+  assert.equal(rows[1].split(',')[0],month);
+  assert.equal(rows[1].split(',').length,6);
+  assert.equal(csv.includes('@'),false);
+  assert.equal(csv.includes('Alice'),false);
+  assert.equal(csv.includes('Bob'),false);
+});
 test('delete cascades claims, logout revokes the session',async()=>{
   assert.equal((await request('DELETE',`/api/reports/${reportId}`,null,'alice')).httpStatus,200);
   assert.equal((await request('GET',`/api/reports/${reportId}`)).httpStatus,404);
