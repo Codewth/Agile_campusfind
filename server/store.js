@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS flags (
   if(!flagColumns.includes('status')) db.exec("ALTER TABLE flags ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
   const reportColumns=db.prepare('PRAGMA table_info(reports)').all().map(c=>c.name);
   if(!reportColumns.includes('moderation_status')) db.exec("ALTER TABLE reports ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'visible'");
+  db.exec(`CREATE TABLE IF NOT EXISTS handover_checks (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+    staff_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    identity_confirmed INTEGER NOT NULL CHECK(identity_confirmed=1),
+    description_confirmed INTEGER NOT NULL CHECK(description_confirmed=1),
+    signed_at TEXT NOT NULL,
+    UNIQUE(report_id,claim_id)
+  );`);
   return db;
 }
 export function publicReport(row){
