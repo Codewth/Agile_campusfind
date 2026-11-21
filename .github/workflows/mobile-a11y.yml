@@ -1,0 +1,40 @@
+name: CampusFind mobile and accessibility audit
+on:
+  push:
+    paths:
+      - '.github/workflows/mobile-a11y.yml'
+      - 'scripts/mobile-a11y-audit.mjs'
+      - 'src/**'
+  workflow_dispatch:
+jobs:
+  mobile-a11y:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - name: Install project and temporary audit dependencies
+        run: |
+          npm ci
+          npm install --no-save --no-package-lock playwright@1.56.0 @axe-core/playwright@4.10.2
+      - name: Install browser
+        run: npx playwright install chromium --with-deps
+      - name: Start CampusFind
+        run: |
+          (npm run dev:all > /tmp/campusfind.log 2>&1 &)
+          for i in $(seq 1 45); do
+            if curl -fsS http://localhost:3001/api/health >/dev/null && curl -fsS http://localhost:5173/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/campusfind.log
+          exit 1
+      - name: Audit four mobile screens
+        run: node scripts/mobile-a11y-audit.mjs
+      - name: Save actual screenshots and audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campusfind-mobile-a11y-evidence
+          path: artifacts/
