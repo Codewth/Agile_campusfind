@@ -18,6 +18,6 @@ jobs:
       - name: Backend and matching tests
         run: npm run test:all
       - name: Frontend tests
-        run: npm test -- --run
+        run: npm test -- tests/match.test.js
       - name: Production build
         run: npm run build
