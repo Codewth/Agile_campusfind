@@ -256,6 +256,22 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
           return reply(res,201,{ok:true,message:'Flag recorded for campus review.'});
         }
       }
+      if(path==='/api/admin/handovers'&&method==='GET'){
+        requireAdmin(req);
+        const rows=db.prepare('SELECT id,report_id,claim_id,staff_user_id,identity_confirmed,description_confirmed,signed_at FROM handover_checks ORDER BY signed_at DESC LIMIT 100').all();
+        return reply(res,200,{signoffs:rows.map(x=>({id:x.id,reportId:x.report_id,claimId:x.claim_id,staffUserId:x.staff_user_id,identityConfirmed:!!x.identity_confirmed,descriptionConfirmed:!!x.description_confirmed,signedAt:x.signed_at}))});
+      }
+      if(path==='/api/admin/handovers'&&method==='POST'){
+        const staff=requireAdmin(req),body=await jsonBody(req);
+        if(body.identityConfirmed!==true||body.descriptionConfirmed!==true)fail('Both staff checks are required before sign-off.',400);
+        if(typeof body.reportId!=='string'||typeof body.claimId!=='string')fail('Report and claim identifiers are required.',400);
+        const claim=db.prepare('SELECT id,report_id,status FROM claims WHERE id=? AND report_id=?').get(body.claimId,body.reportId);
+        if(!claim||claim.status!=='accepted')fail('A verified accepted claim is required for handover.',409);
+        const id=randomUUID(),signedAt=now();
+        try{db.prepare('INSERT INTO handover_checks(id,report_id,claim_id,staff_user_id,identity_confirmed,description_confirmed,signed_at) VALUES(?,?,?,?,1,1,?)').run(id,body.reportId,body.claimId,staff.id,signedAt);}
+        catch(e){if(String(e).includes('UNIQUE'))fail('This claim already has a handover sign-off.',409);throw e;}
+        return reply(res,201,{signoff:{id,reportId:body.reportId,claimId:body.claimId,staffUserId:staff.id,signedAt}});
+      }
       if(path==='/api/admin/summary.csv'&&method==='GET'){
         requireAdmin(req);
         const month=url.searchParams.get('month')||new Date().toISOString().slice(0,7);
