@@ -7,7 +7,7 @@ import { createApp } from '../server/app.js';
 
 const tmp=mkdtempSync(join(tmpdir(),'campusfind-test-'));
 const dist=join(tmp,'dist');mkdirSync(dist);writeFileSync(join(dist,'index.html'),'<!doctype html><title>CampusFind test</title>');
-const app=createApp({dbPath:join(tmp,'test.sqlite'),uploadDir:join(tmp,'uploads'),distDir:dist});
+const app=createApp({dbPath:join(tmp,'test.sqlite'),uploadDir:join(tmp,'uploads'),distDir:dist,seedDemoReports:false});
 await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
 const origin=`http://127.0.0.1:${app.server.address().port}`;
 const cookies={};
@@ -30,6 +30,17 @@ test('create account, login and restore session',async()=>{
   const b=await request('POST','/api/auth/register',{name:'Bob Example',email:'bob@example.edu',password:'DifferentPassword9'},'bob');assert.equal(b.httpStatus,201);
   assert.equal((await request('POST','/api/auth/login',{email:'bob@example.edu',password:'invalid-pass-123'},'bob')).httpStatus,401);
   assert.equal((await request('POST','/api/auth/login',{email:'bob@example.edu',password:'DifferentPassword9'},'bob')).httpStatus,200);
+});
+test('platform dashboard, map, inventory and assistant APIs',async()=>{
+  const map=await request('GET','/api/map');assert.equal(map.httpStatus,200);assert.ok(Array.isArray(map.reports));assert.ok(Array.isArray(map.heatmap));
+  const assistant=await request('POST','/api/assistant',{message:'How do I create a report?'},'alice');assert.equal(assistant.httpStatus,200);assert.ok(assistant.answer.includes('Post report'));
+  assert.equal((await request('GET','/api/dashboard',null,'alice')).httpStatus,200);
+  const inventory=await request('POST','/api/inventory',{name:'Student laptop',category:'Electronics',colour:'Silver',identifyingCode:'PRIVATE-SERIAL-123'},'alice');assert.equal(inventory.httpStatus,201);
+  assert.equal((await request('GET','/api/inventory',null,'alice')).inventory.length,1);
+  await request('POST','/api/reports',{title:'Green notebook',description:'Lecture notes in a green cover',type:'lost',category:'Books & notes',colour:'Green',location:'Library',incidentDate:'2026-11-20',keywords:'notebook lecture notes'},'alice');
+  await request('POST','/api/reports',{title:'Brass key set',description:'Three keys on a blue ring',type:'found',category:'Keys',colour:'Brass',location:'Hostel',incidentDate:'2026-11-21',keywords:'kt keyset keys'},'alice');
+  const notebook=await request('POST','/api/assistant',{message:'show all notebook details lost and found'},'alice');assert.equal(notebook.httpStatus,200);assert.ok(notebook.answer.includes('matching report'));assert.ok(notebook.reports.some(r=>r.title==='Green notebook'));assert.ok(notebook.reports.find(r=>r.title==='Green notebook').description.includes('Lecture notes'));
+  const kt=await request('POST','/api/assistant',{message:'kt'},'alice');assert.equal(kt.httpStatus,200);assert.ok(kt.reports.length>0);assert.ok(kt.reports.every(r=>r.type==='lost'||r.type==='found'));
 });
 let reportId,claimId;
 test('report requires authentication and validates input',async()=>{

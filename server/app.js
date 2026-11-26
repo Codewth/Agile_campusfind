@@ -75,7 +75,7 @@ async function jsonBody(req){
   try {return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{fail('Invalid JSON body.');}
 }
 export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campusfind.sqlite',
-  uploadDir=process.env.UPLOAD_DIR||'server/data/uploads',distDir=process.env.DIST_DIR||'dist',allowedOrigins=(process.env.CLIENT_ORIGIN||'http://localhost:5173,http://localhost:4173,http://localhost:3001').split(',')}={}){
+  uploadDir=process.env.UPLOAD_DIR||'server/data/uploads',distDir=process.env.DIST_DIR||'dist',seedDemoReports=true,allowedOrigins=(process.env.CLIENT_ORIGIN||'http://localhost:5173,http://localhost:4173,http://localhost:3001').split(',')}={}){
   const db=openStore(dbPath);mkdirSync(uploadDir,{recursive:true});
   const demoEmail='demo.reports@campusfind.local';
   let demoUser=db.prepare('SELECT * FROM users WHERE email=?').get(demoEmail);
@@ -84,7 +84,7 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
     db.prepare('INSERT INTO users(id,name,email,salt,password_hash,role,created_at) VALUES(?,?,?,?,?,\'member\',?)').run(id,'CampusFind Demo',demoEmail,salt,passwordHash('DemoPass123!',salt),now());
     demoUser=db.prepare('SELECT * FROM users WHERE email=?').get(demoEmail);
   }
-  if(db.prepare('SELECT COUNT(*) count FROM reports WHERE owner_id=?').get(demoUser.id).count===0){
+  if(seedDemoReports && db.prepare('SELECT COUNT(*) count FROM reports WHERE owner_id=?').get(demoUser.id).count===0){
     const demos=[
       ['Blue backpack near library','A navy canvas backpack with a silver laptop pocket, charger, and a small green key pouch.','lost','Bags','Navy blue','Library','2026-11-18','blue backpack laptop charger'],
       ['Found silver student ID card','Silver-blue campus card found beside the card reader near the main entrance.','found','ID cards','Silver','Main gate','2026-11-17','student id card campus card'],
@@ -136,6 +136,8 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
   }
   function getReport(id){const report=db.prepare('SELECT * FROM reports WHERE id=?').get(id);if(!report)fail('Report not found.',404);return report;}
   function requireAdmin(req){const user=requireUser(req);if(user.role!=='admin')fail('Administrator permission required.',403);return user;}
+  function notify(userId,type,title,body='',link=''){db.prepare(`INSERT INTO notifications(id,user_id,type,title,body,link,created_at) VALUES(?,?,?,?,?,?,?)`).run(randomUUID(),userId,type,title,body,link,now());}
+  function audit(actorId,action,entityType,entityId='',detail='',req){db.prepare(`INSERT INTO audit_log(id,actor_id,action,entity_type,entity_id,detail,ip_address,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(randomUUID(),actorId||null,action,entityType,entityId,detail,req?.socket?.remoteAddress||'',now());}
   function ownReport(id,user){const row=getReport(id);if(row.owner_id!==user.id)fail('Only the report owner may do that.',403);return row;}
   function storeImage(data){const img=validateImage(data);if(!img)return null;
     const filename=`${randomUUID()}.${img.ext}`;writeFileSync(join(uploadDir,filename),img.bytes,{flag:'wx'});return {file:filename,mime:img.mime};
@@ -206,8 +208,18 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
       if(path==='/api/reports'&&method==='POST'){
         const user=requireUser(req),raw=await jsonBody(req),input=reportInput(raw);
         const image=storeImage(raw.imageData),id=randomUUID(),ts=now();
-        try{db.prepare(`INSERT INTO reports(id,owner_id,title,description,type,category,colour,location,incident_date,keywords,status,image_file,image_mime,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?)`).run(id,user.id,input.title,input.description,input.type,input.category,input.colour,input.location,input.incidentDate,input.keywords,image?.file||'',image?.mime||'',ts,ts);}
+        const itemNumber=`CF-${id.slice(0,8).toUpperCase()}`,expiresAt=new Date(Date.now()+45*86400000).toISOString();
+        try{db.prepare(`INSERT INTO reports(id,owner_id,title,description,type,category,colour,location,incident_date,keywords,status,image_file,image_mime,campus_zone,latitude,longitude,item_number,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?, ?,?)`).run(id,user.id,input.title,input.description,input.type,input.category,input.colour,input.location,input.incidentDate,input.keywords,image?.file||'',image?.mime||'',input.campusZone,input.latitude,input.longitude,itemNumber,expiresAt,ts,ts);}
         catch(e){removeImage(image?.file);throw e;}
+        const opposite=db.prepare(`SELECT * FROM reports WHERE type<>? AND status='open' AND moderation_status='visible' AND owner_id<>?`).all(input.type,user.id);
+        for(const candidate of opposite){
+          const sameCategory=input.category.toLowerCase()===candidate.category.toLowerCase();
+          const sameLocation=input.location.toLowerCase()===candidate.location.toLowerCase();
+          if(sameCategory||sameLocation){
+            notify(candidate.owner_id,'match','Potential item match',`${input.title} may match ${candidate.title}. Review the estimated match before making a claim.`,`/items/${id}`);
+          }
+        }
+        db.prepare(`INSERT INTO report_events(id,report_id,actor_id,type,detail,created_at) VALUES(?,?,?,?,?,?)`).run(randomUUID(),id,user.id,'created','Report submitted',ts);
         return reply(res,201,{report:publicReport(getReport(id))});
       }
       const imageMatch=/^\/api\/images\/([0-9a-f-]{36})\.(jpg|png|webp)$/.exec(path);
@@ -224,7 +236,7 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
         if(!action&&method==='PATCH'){
           const user=requireUser(req),old=ownReport(id,user),raw=await jsonBody(req),input=reportInput(raw);
           const image=storeImage(raw.imageData);
-          try{db.prepare(`UPDATE reports SET title=?,description=?,type=?,category=?,colour=?,location=?,incident_date=?,keywords=?,image_file=?,image_mime=?,updated_at=? WHERE id=?`).run(input.title,input.description,input.type,input.category,input.colour,input.location,input.incidentDate,input.keywords,image?.file||old.image_file,image?.mime||old.image_mime,now(),id);}catch(e){removeImage(image?.file);throw e;}
+          try{db.prepare(`UPDATE reports SET title=?,description=?,type=?,category=?,colour=?,location=?,incident_date=?,keywords=?,image_file=?,image_mime=?,campus_zone=?,latitude=?,longitude=?,updated_at=? WHERE id=?`).run(input.title,input.description,input.type,input.category,input.colour,input.location,input.incidentDate,input.keywords,image?.file||old.image_file,image?.mime||old.image_mime,input.campusZone,input.latitude,input.longitude,now(),id);}catch(e){removeImage(image?.file);throw e;}
           if(image)removeImage(old.image_file);
           return reply(res,200,{report:publicReport(getReport(id))});
         }
@@ -235,7 +247,10 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
         if(action==='status'&&method==='PATCH'){
           const user=requireUser(req);ownReport(id,user);const raw=await jsonBody(req);
           if(!statuses.includes(raw.status))fail('Invalid status.');
-          db.prepare('UPDATE reports SET status=?,updated_at=? WHERE id=?').run(raw.status,now(),id);
+          const ts=now();db.prepare('UPDATE reports SET status=?,updated_at=? WHERE id=?').run(raw.status,ts,id);
+          db.prepare(`INSERT INTO report_events(id,report_id,actor_id,type,detail,created_at) VALUES(?,?,?,?,?,?)`).run(randomUUID(),id,user.id,'status',`Status changed to ${raw.status}`,ts);
+          notify(user.id,'status','Report status updated',`Your report is now marked ${raw.status}.`,`/items/${id}`);
+          audit(user.id,'report.status','report',id,`Status changed to ${raw.status}`,req);
           return reply(res,200,{report:publicReport(getReport(id))});
         }
         if(action==='claims'&&method==='POST'){
@@ -246,6 +261,8 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
           const claimId=randomUUID(),ts=now();
           try{db.prepare('INSERT INTO claims(id,report_id,requester_id,note,status,created_at,updated_at) VALUES(?,?,?, ?,?,?,?)').run(claimId,id,user.id,body.note.trim(),'pending',ts,ts);}
           catch(e){if(String(e).includes('UNIQUE'))fail('You have already submitted a claim for this report.',409);throw e;}
+          notify(report.owner_id,'claim','New ownership claim',`A claim was submitted for ${report.title}.`,`/items/${id}`);
+          audit(user.id,'claim.submit','report',id,'Ownership claim submitted',req);
           return reply(res,201,{claim:{id:claimId,status:'pending'}});
         }
         if(action==='flag'&&method==='POST'){
@@ -304,23 +321,173 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
       const claim=/^\/api\/claims\/([a-f0-9-]{36})$/.exec(path);
       if(claim&&method==='PATCH'){
         const user=requireUser(req),body=await jsonBody(req),id=claim[1];
+        if(body.status==='accepted')body.status='approved';
         const row=db.prepare('SELECT c.*,r.owner_id,r.status report_status FROM claims c JOIN reports r ON r.id=c.report_id WHERE c.id=?').get(id);
         if(!row)fail('Claim not found.',404);
         const isOwner=row.owner_id===user.id,isRequester=row.requester_id===user.id;
-        if((body.status==='cancelled'&&!isRequester)||(['accepted','rejected'].includes(body.status)&&!isOwner))fail('You cannot change this claim.',403);
-        if(!['cancelled','accepted','rejected'].includes(body.status))fail('Invalid claim decision.');
-        if(row.status!=='pending')fail('This claim has already been reviewed.',409);
-        if(body.status==='accepted'&&row.report_status!=='open')fail('This report is no longer open.',409);
+        if((body.status==='cancelled'&&!isRequester)||(['under_review','approved','rejected','recovered'].includes(body.status)&&!isOwner))fail('You cannot change this claim.',403);
+        if(!['cancelled','under_review','approved','rejected','recovered'].includes(body.status))fail('Invalid claim decision.');
+        if(row.status==='recovered'||row.status==='rejected'||row.status==='cancelled')fail('This claim is already final.',409);
+        if(['approved','recovered'].includes(body.status)&&row.report_status!=='open'&&body.status==='approved')fail('This report is no longer open.',409);
         db.exec('BEGIN IMMEDIATE');
         try{
           db.prepare('UPDATE claims SET status=?,updated_at=? WHERE id=?').run(body.status,now(),id);
-          if(body.status==='accepted'){
+          if(body.status==='approved'){
             db.prepare(`UPDATE reports SET status='claimed',updated_at=? WHERE id=?`).run(now(),row.report_id);
-            db.prepare(`UPDATE claims SET status='rejected',updated_at=? WHERE report_id=? AND id<>? AND status='pending'`).run(now(),row.report_id,id);
+            db.prepare(`UPDATE claims SET status='rejected',updated_at=? WHERE report_id=? AND id<>? AND status IN ('pending','under_review')`).run(now(),row.report_id,id);
+          }
+          if(body.status==='recovered'){
+            db.prepare(`UPDATE reports SET status='resolved',updated_at=? WHERE id=?`).run(now(),row.report_id);
           }
           db.exec('COMMIT');
         }catch(e){db.exec('ROLLBACK');throw e;}
+        notify(row.requester_id,'claim',`Claim ${body.status.replace('_',' ')}`,`The status of your ownership claim changed to ${body.status.replace('_',' ')}.`,`/my-reports`);
+        audit(user.id,'claim.update','claim',id,`Status changed to ${body.status}`,req);
         return reply(res,200,{ok:true,status:body.status});
+      }
+      if(path==='/api/dashboard'&&method==='GET'){
+        const user=requireUser(req);
+        const reports=db.prepare(`SELECT * FROM reports WHERE owner_id=?`).all(user.id);
+        const saved=db.prepare(`SELECT COUNT(*) count FROM saved_reports WHERE user_id=?`).get(user.id).count;
+        const unread=db.prepare(`SELECT COUNT(*) count FROM notifications WHERE user_id=? AND read_at IS NULL`).get(user.id).count;
+        const activeLost=reports.filter(r=>r.status==='open'&&r.type==='lost').length;
+        const activeFound=reports.filter(r=>r.status==='open'&&r.type==='found').length;
+        const recovered=reports.filter(r=>r.status==='resolved').length;
+        const mine=reports.filter(r=>r.status==='open');
+        let potentialMatches=0;
+        for(const r of mine){const opposite= db.prepare(`SELECT * FROM reports WHERE status='open' AND moderation_status='visible' AND type<>?`).all(r.type);for(const c of opposite){if(c.owner_id!==user.id)potentialMatches++;}}
+        const categoryRows=db.prepare(`SELECT category,COUNT(*) count FROM reports WHERE owner_id=? GROUP BY category ORDER BY count DESC`).all(user.id).map(r=>({name:r.category,count:r.count}));
+        const statusRows=db.prepare(`SELECT status,COUNT(*) count FROM reports WHERE owner_id=? GROUP BY status`).all(user.id).map(r=>({name:r.status,count:r.count}));
+        return reply(res,200,{stats:{total:reports.length,activeLost,activeFound,recovered,potentialMatches,saved,unread},categoryData:categoryRows,statusData:statusRows,recent:reports.sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8).map(publicReport)});
+      }
+      if(path==='/api/notifications'&&method==='GET'){
+        const user=requireUser(req);const rows=db.prepare(`SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 100`).all(user.id);
+        return reply(res,200,{notifications:rows.map(r=>({id:r.id,type:r.type,title:r.title,body:r.body,link:r.link,read:Boolean(r.read_at),createdAt:r.created_at}))});
+      }
+      const notificationRead=/^\/api\/notifications\/([a-f0-9-]{36})\/read$/.exec(path);
+      if(notificationRead&&method==='PATCH'){const user=requireUser(req);const result=db.prepare(`UPDATE notifications SET read_at=? WHERE id=? AND user_id=?`).run(now(),notificationRead[1],user.id);if(!result.changes)fail('Notification not found.',404);return reply(res,200,{ok:true});}
+      if(path==='/api/notifications/read-all'&&method==='PATCH'){const user=requireUser(req);db.prepare(`UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL`).run(now(),user.id);return reply(res,200,{ok:true});}
+      if(path==='/api/conversations'&&method==='GET'){
+        const user=requireUser(req);const rows=db.prepare(`SELECT c.*,r.title report_title,ua.name name_a,ub.name name_b,
+          (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id AND m.sender_id<>? AND NOT EXISTS (SELECT 1 FROM blocked_users b WHERE b.blocker_id=? AND b.blocked_id=m.sender_id)) unread
+          FROM conversations c LEFT JOIN reports r ON r.id=c.report_id JOIN users ua ON ua.id=c.user_a JOIN users ub ON ub.id=c.user_b
+          WHERE c.user_a=? OR c.user_b=? ORDER BY c.updated_at DESC`).all(user.id,user.id,user.id,user.id);
+        return reply(res,200,{conversations:rows.map(r=>({id:r.id,reportId:r.report_id,reportTitle:r.report_title,otherName:r.user_a===user.id?r.name_b:r.name_a,unread:r.unread,updatedAt:r.updated_at}))});
+      }
+      if(path==='/api/conversations'&&method==='POST'){
+        const user=requireUser(req),body=await jsonBody(req),otherId=typeof body.userId==='string'?body.userId:'';if(!otherId||otherId===user.id)fail('Choose a valid conversation participant.');
+        if(!db.prepare('SELECT id FROM users WHERE id=?').get(otherId))fail('User not found.',404);
+        if(db.prepare(`SELECT 1 FROM blocked_users WHERE (blocker_id=? AND blocked_id=? ) OR (blocker_id=? AND blocked_id=?)`).get(user.id,otherId,otherId,user.id))fail('Conversation unavailable because one user has blocked the other.',403);
+        let reportId=null;if(typeof body.reportId==='string'&&body.reportId){if(!db.prepare('SELECT id FROM reports WHERE id=?').get(body.reportId))fail('Report not found.',404);reportId=body.reportId;}
+        const a=user.id<otherId?user.id:otherId,b=user.id<otherId?otherId:user.id;
+        let row=db.prepare(`SELECT * FROM conversations WHERE report_id=? AND user_a=? AND user_b=?`).get(reportId,a,b);
+        if(!row){const id=randomUUID(),ts=now();db.prepare(`INSERT INTO conversations(id,report_id,user_a,user_b,created_at,updated_at) VALUES(?,?,?,?,?,?)`).run(id,reportId,a,b,ts,ts);row=db.prepare(`SELECT * FROM conversations WHERE id=?`).get(id);}
+        return reply(res,201,{conversation:{id:row.id}});
+      }
+      const conversation=/^\/api\/conversations\/([a-f0-9-]{36})(?:\/(messages|block|report))?$/.exec(path);
+      if(conversation){
+        const [,conversationId,action]=conversation,user=requireUser(req);
+        const row=db.prepare(`SELECT * FROM conversations WHERE id=? AND (user_a=? OR user_b=?)`).get(conversationId,user.id,user.id);if(!row)fail('Conversation not found.',404);
+        if(action==='messages'&&method==='GET'){const rows=db.prepare(`SELECT m.*,u.name sender_name FROM messages m JOIN users u ON u.id=m.sender_id WHERE m.conversation_id=? ORDER BY m.created_at ASC`).all(conversationId);return reply(res,200,{messages:rows.map(r=>({id:r.id,senderId:r.sender_id,senderName:r.sender_name,body:r.body,own:r.sender_id===user.id,createdAt:r.created_at}))});}
+        if(action==='messages'&&method==='POST'){const body=await jsonBody(req),text=typeof body.body==='string'?body.body.trim():'';if(text.length<1||text.length>2000)fail('Message must be 1–2000 characters.');const other=row.user_a===user.id?row.user_b:row.user_a;if(db.prepare(`SELECT 1 FROM blocked_users WHERE blocker_id=? AND blocked_id=?`).get(other,user.id))fail('You cannot message this user.',403);const ts=now(),id=randomUUID();db.prepare(`INSERT INTO messages(id,conversation_id,sender_id,body,created_at) VALUES(?,?,?,?,?)`).run(id,conversationId,user.id,text,ts);db.prepare(`UPDATE conversations SET updated_at=? WHERE id=?`).run(ts,conversationId);notify(other,'message','New recovery message',text.slice(0,120),`/messages/${conversationId}`);return reply(res,201,{message:{id,body:text,createdAt:ts}});}
+        if(action==='block'&&method==='POST'){const other=row.user_a===user.id?row.user_b:row.user_a;db.prepare(`INSERT OR IGNORE INTO blocked_users(blocker_id,blocked_id,created_at) VALUES(?,?,?)`).run(user.id,other,now());audit(user.id,'user.block','conversation',conversationId,'',req);return reply(res,200,{ok:true});}
+        if(action==='report'&&method==='POST'){const body=await jsonBody(req);if(typeof body.reason!=='string'||body.reason.trim().length<10)fail('Reporting reason must be at least 10 characters.');audit(user.id,'conversation.report','conversation',conversationId,body.reason.trim().slice(0,500),req);return reply(res,201,{ok:true});}
+      }
+      if(path==='/api/saved'&&method==='GET'){
+        const user=requireUser(req);const rows=db.prepare(`SELECT r.* FROM saved_reports s JOIN reports r ON r.id=s.report_id WHERE s.user_id=? AND r.moderation_status='visible' ORDER BY s.created_at DESC`).all(user.id);return reply(res,200,{reports:rows.map(publicReport)});
+      }
+      const savedReport=/^\/api\/saved\/([a-f0-9-]{36})$/.exec(path);
+      if(savedReport&&(method==='POST'||method==='DELETE')){
+        const user=requireUser(req),id=savedReport[1];if(!db.prepare('SELECT id FROM reports WHERE id=?').get(id))fail('Report not found.',404);
+        if(method==='POST')db.prepare(`INSERT OR IGNORE INTO saved_reports(user_id,report_id,created_at) VALUES(?,?,?)`).run(user.id,id,now());
+        else db.prepare(`DELETE FROM saved_reports WHERE user_id=? AND report_id=?`).run(user.id,id);
+        audit(user.id,method==='POST'?'saved.add':'saved.remove','report',id,'',req);return reply(res,200,{ok:true});
+      }
+      if(path==='/api/searches'&&method==='GET'){const user=requireUser(req);const rows=db.prepare(`SELECT * FROM saved_searches WHERE user_id=? ORDER BY created_at DESC`).all(user.id);return reply(res,200,{searches:rows.map(r=>({id:r.id,name:r.name,query:JSON.parse(r.query),createdAt:r.created_at}))});}
+      if(path==='/api/searches'&&method==='POST'){const user=requireUser(req),body=await jsonBody(req);const name=typeof body.name==='string'?body.name.trim().slice(0,60):'';if(name.length<2)fail('Search name must be 2–60 characters.');db.prepare(`INSERT INTO saved_searches(id,user_id,name,query,created_at) VALUES(?,?,?,?,?)`).run(randomUUID(),user.id,name,JSON.stringify(body.query||{}),now());return reply(res,201,{ok:true});}
+      if(path==='/api/inventory'&&method==='GET'){const user=requireUser(req);const rows=db.prepare(`SELECT * FROM inventory WHERE user_id=? ORDER BY created_at DESC`).all(user.id);return reply(res,200,{inventory:rows.map(r=>({id:r.id,name:r.name,description:r.description,category:r.category,colour:r.colour,identifyingCode:r.identifying_code,createdAt:r.created_at}))});}
+      if(path==='/api/inventory'&&method==='POST'){
+        const user=requireUser(req),body=await jsonBody(req);const name=typeof body.name==='string'?body.name.trim():'';if(name.length<2||name.length>100)fail('Item name must be 2–100 characters.');const category=typeof body.category==='string'?body.category.trim().slice(0,60):'Other';const ts=now();
+        db.prepare(`INSERT INTO inventory(id,user_id,name,description,category,colour,identifying_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`).run(randomUUID(),user.id,name,typeof body.description==='string'?body.description.trim().slice(0,500):'',category,typeof body.colour==='string'?body.colour.trim().slice(0,60):'',typeof body.identifyingCode==='string'?body.identifyingCode.trim().slice(0,100):'',ts,ts);audit(user.id,'inventory.add','inventory','',name,req);return reply(res,201,{ok:true});
+      }
+      if(path==='/api/map'&&method==='GET'){
+        const rows=db.prepare(`SELECT id,title,type,category,status,location,campus_zone,latitude,longitude,incident_date,created_at FROM reports WHERE moderation_status='visible' AND status='open'`).all();
+        const groups=new Map();for(const r of rows){const key=r.location||r.campus_zone||'Other';groups.set(key,(groups.get(key)||0)+1);}
+        return reply(res,200,{reports:rows.map(r=>({id:r.id,title:r.title,type:r.type,category:r.category,status:r.status,location:r.location,campusZone:r.campus_zone,latitude:r.latitude,longitude:r.longitude,incidentDate:r.incident_date})),heatmap:[...groups].map(([location,count])=>({location,count}))});
+      }
+      if(path==='/api/assistant'&&method==='POST'){
+        const body=await jsonBody(req),q=typeof body.message==='string'?body.message.toLowerCase().trim():'';if(!q||q.length>500)fail('Message must be 1–500 characters.');
+        let answer='',assistantReports=[];
+        const helpIntent=/(how.*(create|post|report)|create.*(report|item)|post.*(report|item)|how.*claim|claim.*process|handover|safe.*recover)/.test(q);
+        const reportQuery=!helpIntent&&/(lost|found|missing|item|items|report|reports|notebook|notebooks|bag|bottle|key|keys|kt|nb|earbuds|book|books|laptop|phone|charger|wallet|umbrella|clothes|hoodie|sunglasses|watch|keyboard|card|id)/.test(q);
+        if(reportQuery){
+          let type=null;
+          const bothTypes=/\b(lost)\b/.test(q)&&/\b(found)\b/.test(q);
+          if(!bothTypes&&/\b(found|find)\b/.test(q))type='found';
+          else if(!bothTypes&&/\blost|missing\b/.test(q))type='lost';
+          const stopWords=new Set(['show','me','the','all','about','details','detail','with','from','please','for','my','any','item','items','report','reports','lost','found','missing','database','in','on','at','of','and','or','a','an','list']);
+          let searchTerms=q.match(/[a-z0-9]+/g)?.filter(word=>word.length>1&&!stopWords.has(word))||[];
+          searchTerms=searchTerms.flatMap(word=>word==='kt'?['key','keys']:word==='nb'?['notebook','notebooks']:word==='id'?['id','identity','card']:word==='phone'?['phone','mobile','charger']:[word]);
+          searchTerms=[...new Set(searchTerms)];
+          let sql=`SELECT id,item_number,title,description,type,category,colour,location,incident_date,status,expires_at,created_at FROM reports WHERE moderation_status='visible'`;
+          const args=[];
+          if(type){sql+=' AND type=?';args.push(type);}
+          if(!/\b(all|everything)\b/.test(q)&&searchTerms.length){
+            const termSql=searchTerms.map(()=>`(LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(keywords) LIKE ? OR LOWER(category) LIKE ? OR LOWER(colour) LIKE ? OR LOWER(location) LIKE ?)`).join(' OR ');
+            sql+=` AND (${termSql})`;
+            for(const term of searchTerms){const value=`%${term}%`;args.push(value,value,value,value,value,value);}
+          }
+          sql+=' ORDER BY created_at DESC LIMIT 25';
+          let rows=db.prepare(sql).all(...args);
+          if(rows.length===0&&searchTerms.length){
+            const broadTerms=searchTerms.filter(word=>word.length>=3).slice(0,3);
+            if(broadTerms.length){
+              const fallback=broadTerms.map(()=>`(LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(keywords) LIKE ? OR LOWER(category) LIKE ?)`).join(' OR ');
+              sql=`SELECT id,item_number,title,description,type,category,colour,location,incident_date,status,expires_at,created_at FROM reports WHERE moderation_status='visible' ${type?'AND type=?':''} AND (${fallback}) ORDER BY created_at DESC LIMIT 25`;
+              const fallbackArgs=[];if(type)fallbackArgs.push(type);
+              for(const term of broadTerms){const value=`%${term}%`;fallbackArgs.push(value,value,value,value);}
+              rows=db.prepare(sql).all(...fallbackArgs);
+            }
+          }
+          if(rows.length){
+            assistantReports=rows.map(r=>({id:r.id,itemNumber:r.item_number||r.id.slice(0,8).toUpperCase(),title:r.title,type:r.type,category:r.category,colour:r.colour,location:r.location,incidentDate:r.incident_date,status:r.status,description:r.description||''}));
+            answer=`I found ${rows.length} matching ${rows.length===1?'report':'reports'}:`;
+          }else{
+            answer=`No public reports matched “${body.message.trim().slice(0,120)}”. Try an item name such as “notebook”, “lost keys”, “found ID card”, or ask to “show all lost reports”.`;
+          }
+        }
+        else
+        if(/match|lost|found/.test(q)&&/(match|suggest|possible)/.test(q)){const sample=db.prepare(`SELECT title,type,location,category FROM reports WHERE moderation_status='visible' AND status='open' ORDER BY created_at DESC LIMIT 5`).all();answer=`I found ${sample.length} active reports to review. Potential matches are estimated, not verified; review category, colour, location and identifying details before claiming.`;}
+        else if(/report|post|create/.test(q)){answer='To create a report, sign in, choose “Post report”, select lost or found, and include the item name, category, colour, campus location and date. Avoid passwords or full ID numbers.';}
+        else if(/claim|handover|recover|collect/.test(q)){answer='Use the private claim form on a found-item listing. The owner can request an explanation and move the claim through pending, under review, approved or recovered. Complete handovers only through designated campus collection points.';}
+        else if(/faq|password|privacy|safe/.test(q)){answer='CampusFind never verifies ownership from a matching score alone. Do not share private contact details or sensitive documents. Use campus staff or an approved collection point for identity checks.';}
+        else {answer='I can help you search reports, create a lost or found report, understand private claims and locate safe handover guidance. I use the CampusFind database and do not create external university facts.';}
+        return reply(res,200,{answer,reports:assistantReports,source:'CampusFind database assistant',verified:false});
+      }
+      const reportTimeline=/^\/api\/reports\/([a-f0-9-]{36})\/(timeline|renew)$/.exec(path);
+      if(reportTimeline){
+        const [,id,action]=reportTimeline,user=requireUser(req),report=ownReport(id,user);
+        if(action==='timeline'&&method==='GET'){const rows=db.prepare(`SELECT e.*,u.name actor_name FROM report_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.report_id=? ORDER BY e.created_at ASC`).all(id);return reply(res,200,{events:rows.map(r=>({id:r.id,type:r.type,detail:r.detail,actorName:r.actor_name||'CampusFind',createdAt:r.created_at}))});}
+        if(action==='renew'&&method==='PATCH'){const expiresAt=new Date(Date.now()+45*86400000).toISOString();db.prepare(`UPDATE reports SET expires_at=?,renewed_at=?,updated_at=? WHERE id=?`).run(expiresAt,now(),now(),id);db.prepare(`INSERT INTO report_events(id,report_id,actor_id,type,detail,created_at) VALUES(?,?,?,?,?,?)`).run(randomUUID(),id,user.id,'renewed','Listing renewed for 45 days',now());audit(user.id,'report.renew','report',id,'Renewed for 45 days',req);return reply(res,200,{expiresAt});}
+      }
+      if(path==='/api/admin/analytics'&&method==='GET'){
+        requireAdmin(req);
+        const category=db.prepare(`SELECT category,COUNT(*) count FROM reports GROUP BY category ORDER BY count DESC`).all().map(r=>({name:r.category,count:r.count}));
+        const location=db.prepare(`SELECT location,COUNT(*) count FROM reports GROUP BY location ORDER BY count DESC`).all().map(r=>({name:r.location,count:r.count}));
+        const status=db.prepare(`SELECT status,COUNT(*) count FROM reports GROUP BY status`).all().map(r=>({name:r.status,count:r.count}));
+        const users=db.prepare(`SELECT COUNT(*) count FROM users`).get().count,reports=db.prepare(`SELECT COUNT(*) count FROM reports`).get().count,claims=db.prepare(`SELECT COUNT(*) count FROM claims`).get().count,flags=db.prepare(`SELECT COUNT(*) count FROM flags WHERE status='pending'`).get().count;
+        return reply(res,200,{stats:{users,reports,claims,flags},category,location,status,audit:db.prepare(`SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 50`).all().map(r=>({id:r.id,action:r.action,entityType:r.entity_type,entityId:r.entity_id,detail:r.detail,createdAt:r.created_at}))});
+      }
+      if(path==='/api/admin/users'&&method==='GET'){
+        requireAdmin(req);const rows=db.prepare(`SELECT u.*, (SELECT COUNT(*) FROM reports r WHERE r.owner_id=u.id) report_count FROM users u ORDER BY u.created_at DESC`).all();return reply(res,200,{users:rows.map(r=>({uid:r.id,displayName:r.name,email:r.email,role:r.role,reportCount:r.report_count,createdAt:r.created_at}))});
+      }
+      const adminUser=/^\/api\/admin\/users\/([a-f0-9-]{36})$/.exec(path);
+      if(adminUser&&method==='PATCH'){const actor=requireAdmin(req),body=await jsonBody(req);if(!['member','admin'].includes(body.role))fail('Role must be member or admin.');if(adminUser[1]===actor.id&&body.role==='member')fail('You cannot remove your own administrator role.');const result=db.prepare(`UPDATE users SET role=? WHERE id=?`).run(body.role,adminUser[1]);if(!result.changes)fail('User not found.',404);audit(actor.id,'user.role','user',adminUser[1],`Role changed to ${body.role}`,req);return reply(res,200,{ok:true});}
+      if(path==='/api/admin/export.csv'&&method==='GET'){
+        requireAdmin(req);const rows=db.prepare(`SELECT r.*,u.email owner_email FROM reports r JOIN users u ON u.id=r.owner_id ORDER BY r.created_at DESC`).all();
+        const escape=v=>`"${String(v??'').replaceAll('"','""')}"`;
+        const csv=['id,item_number,title,type,category,colour,location,status,incident_date,owner_email,created_at'].join(',')+'\n'+rows.map(r=>[r.id,r.item_number,r.title,r.type,r.category,r.colour,r.location,r.status,r.incident_date,r.owner_email,r.created_at].map(escape).join(',')).join('\n');
+        res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="campusfind-reports.csv"','Cache-Control':'no-store'});return res.end(csv);
       }
       // One-process deployment: serve the Vite build and SPA routes from this server.
       if(method==='GET'&&path!=='/api'&&!path.startsWith('/api/')&&existsSync(join(staticRoot,'index.html'))){

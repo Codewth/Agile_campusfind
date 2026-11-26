@@ -1,5 +1,9 @@
 # CampusFind — Full-stack smart lost-and-found platform
 
+## University platform features
+
+CampusFind now includes a responsive light/dark interface, personalised dashboard, campus zone map and heatmap, saved reports, private inventory, notifications, private recovery conversations, database-backed campus assistance, enhanced claim statuses, report timelines, renewal and administrator analytics. Estimates and match scores are never presented as proof of ownership.
+
 CampusFind is a **working full-stack development project**, with a React/Vite/Tailwind frontend and its own **Node.js HTTP API + persistent SQLite backend**. It no longer needs Firebase credentials to run locally. This application is a proposed software implementation beyond the discovery-only *Agile Software Development – Submission 1* PDF; the sample interviews in that PDF are illustrative, not verified research evidence.
 
 ## What's included
@@ -69,6 +73,17 @@ npm run test:core    # Matching logic tests only
 npm run test         # Vitest tests; requires npm install
 npm run build        # Frontend build; requires npm install
 ```
+
+### Environment variables
+
+- `DATABASE_PATH`: persistent SQLite file path. Default: `server/data/campusfind.sqlite`.
+- `UPLOAD_DIR`: persistent upload directory. Default: `server/data/uploads`.
+- `DIST_DIR`: built Vite directory. Default: `dist`.
+- `CLIENT_ORIGIN`: comma-separated allowed browser origins.
+- `CAMPUS_EMAIL_DOMAIN`: optional registration domain restriction.
+- `FIREBASE_PROJECT_ID` or `VITE_FIREBASE_PROJECT_ID`: optional Firebase Google sign-in project.
+
+The built-in assistant is database-backed and explicitly labelled; no external AI credentials are required. External identity providers and production SMS/email are not simulated.
 
 ## Deploy with persistent storage
 

@@ -28,8 +28,8 @@ function readImage(file){return new Promise((resolve,reject)=>{
 });}
 export async function saveReport(form,user,id){
   if(!user)throw new Error('Please sign in to save a report.');
-  const {file,title,description,type,category,colour,location,incidentDate,keywords}=form;
-  const data={title,description,type,category,colour,location,incidentDate,keywords};
+  const {file,title,description,type,category,colour,location,campusZone,latitude,longitude,incidentDate,keywords}=form;
+  const data={title,description,type,category,colour,location,campusZone,latitude:latitude||null,longitude:longitude||null,incidentDate,keywords};
   if(file)data.imageData=await readImage(file);
   await api(id?`/reports/${encodeURIComponent(id)}`:'/reports',{method:id?'PATCH':'POST',body:data});
   refresh();
@@ -46,3 +46,22 @@ export async function submitClaim(id,note){const result=await api(`/reports/${id
 export async function getClaims(scope='incoming'){return (await api(`/claims?scope=${scope}`)).claims;}
 export async function decideClaim(id,status){const result=await api(`/claims/${id}`,{method:'PATCH',body:{status}});refresh();return result;}
 export async function flagReport(id,reason){return api(`/reports/${id}/flag`,{method:'POST',body:{reason}});}
+export const getDashboard=()=>api('/dashboard');
+export const getNotifications=()=>api('/notifications');
+export async function markNotification(id){return api(`/notifications/${id}/read`,{method:'PATCH'});}
+export async function markAllNotifications(){return api('/notifications/read-all',{method:'PATCH'});}
+export const getSaved=()=>api('/saved');
+export const saveReportItem=id=>api(`/saved/${id}`,{method:'POST'});
+export const unsaveReportItem=id=>api(`/saved/${id}`,{method:'DELETE'});
+export const getSavedSearches=()=>api('/searches');
+export const addSavedSearch=(name,query)=>api('/searches',{method:'POST',body:{name,query}});
+export const getInventory=()=>api('/inventory');
+export const addInventory=body=>api('/inventory',{method:'POST',body});
+export const getMap=()=>api('/map');
+export const getConversations=()=>api('/conversations');
+export const createConversation=body=>api('/conversations',{method:'POST',body});
+export const getMessages=id=>api(`/conversations/${id}/messages`);
+export const sendMessage=(id,body)=>api(`/conversations/${id}/messages`,{method:'POST',body:{body}});
+export const blockConversation=id=>api(`/conversations/${id}/block`,{method:'POST'});
+export const reportConversation=(id,reason)=>api(`/conversations/${id}/report`,{method:'POST',body:{reason}});
+export const askAssistant=message=>api('/assistant',{method:'POST',body:{message}});

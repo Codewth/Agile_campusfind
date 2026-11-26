@@ -21,7 +21,14 @@ export function reportInput(raw) {
   const incidentDate=clean(raw.incidentDate,'Date',10,10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(incidentDate)||Number.isNaN(Date.parse(incidentDate))||new Date(incidentDate).toISOString().slice(0,10)!==incidentDate)fail('Enter a valid date.');
   if(incidentDate>new Date().toISOString().slice(0,10))fail('Report date cannot be in the future.');
-  return {title,description,colour,location,keywords,category,type:raw.type,incidentDate};
+  const campusZone=typeof raw.campusZone==='string'?clean(raw.campusZone,'Campus zone',0,120,false):'';
+  const latitude=raw.latitude===null||raw.latitude===undefined||raw.latitude===''?null:Number(raw.latitude);
+  const longitude=raw.longitude===null||raw.longitude===undefined||raw.longitude===''?null:Number(raw.longitude);
+  if(latitude!==null&&!Number.isFinite(latitude))fail('Latitude must be a valid number.');
+  if(longitude!==null&&!Number.isFinite(longitude))fail('Longitude must be a valid number.');
+  if(latitude!==null&&(latitude<-90||latitude>90))fail('Latitude is outside the valid range.');
+  if(longitude!==null&&(longitude<-180||longitude>180))fail('Longitude is outside the valid range.');
+  return {title,description,colour,location,keywords,category,type:raw.type,incidentDate,campusZone,latitude,longitude};
 }
 export function validateCredentials(body, registration=false){
   if(!body||typeof body!=='object') fail('Account details are required.');

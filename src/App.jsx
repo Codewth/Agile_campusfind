@@ -8,6 +8,7 @@ import ReportForm from './pages/ReportForm';
 import MyReports from './pages/MyReports';
 import ItemDetails from './pages/ItemDetails';
 import Admin from './pages/Admin';
+import { Dashboard, Notifications, CampusMap, Inventory, Assistant, Messages, SavedItems } from './pages/Platform';
 import { Spinner } from './components/UI';
 import { useAuth } from './context/AuthContext';
 import { humanError, subscribeReports } from './lib/data';
@@ -25,12 +26,20 @@ export default function App(){
   },[user?.uid]);
   const publicReports=reports.filter(r=>r.moderationStatus!=='hidden');
   return <Layout><Routes>
-    <Route path="/" element={<Home/>}/>
+    <Route path="/" element={<Home reports={publicReports} loading={loading}/>}/>
     <Route path="/login" element={<AuthPage mode="login"/>}/>
     <Route path="/register" element={<AuthPage mode="register"/>}/>
     <Route path="/browse" element={<Browse reports={publicReports} {...{loading,error}}/>}/>
     <Route path="/items/:id" element={<ItemDetails {...{reports,loading}}/>}/>
     <Route path="/admin" element={<Protected><Admin/></Protected>}/>
+    <Route path="/dashboard" element={<Protected><Dashboard/></Protected>}/>
+    <Route path="/notifications" element={<Protected><Notifications/></Protected>}/>
+    <Route path="/map" element={<CampusMap/>}/>
+    <Route path="/messages" element={<Protected><Messages/></Protected>}/>
+    <Route path="/messages/:id" element={<Protected><Messages/></Protected>}/>
+    <Route path="/assistant" element={<Assistant/>}/>
+    <Route path="/inventory" element={<Protected><Inventory/></Protected>}/>
+    <Route path="/saved" element={<Protected><SavedItems/></Protected>}/>
     <Route path="/my-reports" element={<Protected><MyReports {...{reports,loading,error}}/></Protected>}/>
     <Route path="/report/new" element={<Protected><ReportForm {...{reports,loading}}/></Protected>}/>
     <Route path="/report/:id/edit" element={<Protected><ReportForm {...{reports,loading}}/></Protected>}/>
