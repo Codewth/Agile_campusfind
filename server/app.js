@@ -283,7 +283,7 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
         if(body.identityConfirmed!==true||body.descriptionConfirmed!==true)fail('Both staff checks are required before sign-off.',400);
         if(typeof body.reportId!=='string'||typeof body.claimId!=='string')fail('Report and claim identifiers are required.',400);
         const claim=db.prepare('SELECT id,report_id,status FROM claims WHERE id=? AND report_id=?').get(body.claimId,body.reportId);
-        if(!claim||claim.status!=='accepted')fail('A verified accepted claim is required for handover.',409);
+        if(!claim||!['accepted','approved'].includes(claim.status))fail('A verified accepted claim is required for handover.',409);
         const id=randomUUID(),signedAt=now();
         try{db.prepare('INSERT INTO handover_checks(id,report_id,claim_id,staff_user_id,identity_confirmed,description_confirmed,signed_at) VALUES(?,?,?,?,1,1,?)').run(id,body.reportId,body.claimId,staff.id,signedAt);}
         catch(e){if(String(e).includes('UNIQUE'))fail('This claim already has a handover sign-off.',409);throw e;}
@@ -321,18 +321,17 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
       const claim=/^\/api\/claims\/([a-f0-9-]{36})$/.exec(path);
       if(claim&&method==='PATCH'){
         const user=requireUser(req),body=await jsonBody(req),id=claim[1];
-        if(body.status==='accepted')body.status='approved';
         const row=db.prepare('SELECT c.*,r.owner_id,r.status report_status FROM claims c JOIN reports r ON r.id=c.report_id WHERE c.id=?').get(id);
         if(!row)fail('Claim not found.',404);
         const isOwner=row.owner_id===user.id,isRequester=row.requester_id===user.id;
-        if((body.status==='cancelled'&&!isRequester)||(['under_review','approved','rejected','recovered'].includes(body.status)&&!isOwner))fail('You cannot change this claim.',403);
-        if(!['cancelled','under_review','approved','rejected','recovered'].includes(body.status))fail('Invalid claim decision.');
+        if((body.status==='cancelled'&&!isRequester)||(['under_review','accepted','approved','rejected','recovered'].includes(body.status)&&!isOwner))fail('You cannot change this claim.',403);
+        if(!['cancelled','under_review','accepted','approved','rejected','recovered'].includes(body.status))fail('Invalid claim decision.');
         if(row.status==='recovered'||row.status==='rejected'||row.status==='cancelled')fail('This claim is already final.',409);
-        if(['approved','recovered'].includes(body.status)&&row.report_status!=='open'&&body.status==='approved')fail('This report is no longer open.',409);
+        if(['accepted','approved'].includes(body.status)&&row.report_status!=='open')fail('This report is no longer open.',409);
         db.exec('BEGIN IMMEDIATE');
         try{
           db.prepare('UPDATE claims SET status=?,updated_at=? WHERE id=?').run(body.status,now(),id);
-          if(body.status==='approved'){
+          if(['accepted','approved'].includes(body.status)){
             db.prepare(`UPDATE reports SET status='claimed',updated_at=? WHERE id=?`).run(now(),row.report_id);
             db.prepare(`UPDATE claims SET status='rejected',updated_at=? WHERE report_id=? AND id<>? AND status IN ('pending','under_review')`).run(now(),row.report_id,id);
           }
