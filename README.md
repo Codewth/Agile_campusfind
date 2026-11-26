@@ -10,6 +10,7 @@ CampusFind is a **working full-stack development project**, with a React/Vite/Ta
 
 - Register, log in and log out with secure server-side password hashing (scrypt), random revocable sessions and HttpOnly, SameSite cookies.
 - Public catalog of lost/found item reports with server-side search/filter/pagination; create, edit and delete your own reports.
+- Private account profile with editable name, department/programme, year of study and About me; sign-in email is read-only.
 - Optional JPG/PNG/WebP photo uploads up to 5 MB with extension and file-signature checks, served from the backend; file replacement/deletion.
 - Status workflow (`open`, `claimed`, `resolved`) enforced by owner permissions.
 - Explainable rule-based lost/found matching in the React app.

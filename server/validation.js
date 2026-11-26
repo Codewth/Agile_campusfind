@@ -38,6 +38,15 @@ export function validateCredentials(body, registration=false){
   const name=registration?clean(body.name,'Name',2,60):null;
   return {email,password:body.password,name};
 }
+export function profileInput(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('Profile details are required.');
+  const name=clean(raw.name,'Name',2,60);
+  const aboutMe=clean(raw.aboutMe??'','About me',0,500,false);
+  const department=clean(raw.department??'','Department or programme',0,100,false);
+  const yearOfStudy=clean(raw.yearOfStudy??'','Year of study',0,20,false);
+  if(!['','1','2','3','4','postgraduate','other'].includes(yearOfStudy))fail('Choose a valid year of study.');
+  return {name,aboutMe,department,yearOfStudy};
+}
 export function validateImage(data){
   if(data==null||data==='')return null;
   if(typeof data!=='string')fail('Image must be an encoded JPG, PNG, or WebP.');

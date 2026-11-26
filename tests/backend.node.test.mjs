@@ -37,6 +37,16 @@ test('create account, login and restore session',async()=>{
   assert.equal((await request('POST','/api/auth/login',{email:'bob@example.edu',password:'invalid-pass-123'},'bob')).httpStatus,401);
   assert.equal((await request('POST','/api/auth/login',{email:'bob@example.edu',password:'DifferentPassword9'},'bob')).httpStatus,200);
 });
+test('profile details are private, editable and persistent',async()=>{
+  assert.equal((await request('GET','/api/profile')).httpStatus,401);
+  const initial=await request('GET','/api/profile',null,'alice');
+  assert.equal(initial.httpStatus,200);assert.equal(initial.profile.email,'alice@example.edu');assert.equal(initial.profile.aboutMe,'');
+  const saved=await request('PATCH','/api/profile',{name:'Alice Campus',aboutMe:'I enjoy helping my campus community.',department:'Computer Science',yearOfStudy:'2',email:'changed@example.edu',role:'admin'},'alice');
+  assert.equal(saved.httpStatus,200);assert.equal(saved.profile.displayName,'Alice Campus');assert.equal(saved.profile.department,'Computer Science');assert.equal(saved.profile.yearOfStudy,'2');
+  assert.equal(saved.profile.email,'alice@example.edu');assert.equal(saved.user.role,'member');
+  const reloaded=await request('GET','/api/profile',null,'alice');assert.equal(reloaded.profile.aboutMe,'I enjoy helping my campus community.');
+  assert.equal((await request('PATCH','/api/profile',{name:'X',yearOfStudy:'7'},'alice')).httpStatus,400);
+});
 test('platform dashboard, map, inventory and assistant APIs',async()=>{
   const map=await request('GET','/api/map');assert.equal(map.httpStatus,200);assert.ok(Array.isArray(map.reports));assert.ok(Array.isArray(map.heatmap));
   const assistant=await request('POST','/api/assistant',{message:'How do I create a report?'},'alice');assert.equal(assistant.httpStatus,200);assert.ok(assistant.answer.includes('Post report'));

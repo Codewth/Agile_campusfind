@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, statSyn
 import { join, resolve, relative, extname } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { openStore, publicReport, publicUser } from './store.js';
-import { fail, reportInput, validateCredentials, validateImage, statuses } from './validation.js';
+import { fail, reportInput, validateCredentials, validateImage, profileInput, statuses } from './validation.js';
 
 const SESSION_COOKIE='campusfind_session', WEEK=7*24*3600*1000;
 const digest=token=>createHash('sha256').update(token).digest('hex');
@@ -138,6 +138,7 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
   function requireAdmin(req){const user=requireUser(req);if(user.role!=='admin')fail('Administrator permission required.',403);return user;}
   function notify(userId,type,title,body='',link=''){db.prepare(`INSERT INTO notifications(id,user_id,type,title,body,link,created_at) VALUES(?,?,?,?,?,?,?)`).run(randomUUID(),userId,type,title,body,link,now());}
   function audit(actorId,action,entityType,entityId='',detail='',req){db.prepare(`INSERT INTO audit_log(id,actor_id,action,entity_type,entity_id,detail,ip_address,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(randomUUID(),actorId||null,action,entityType,entityId,detail,req?.socket?.remoteAddress||'',now());}
+  function privateProfile(row){return {uid:row.id,displayName:row.name,email:row.email,aboutMe:row.about_me||'',department:row.department||'',yearOfStudy:row.year_of_study||'',updatedAt:row.profile_updated_at||row.created_at};}
   function ownReport(id,user){const row=getReport(id);if(row.owner_id!==user.id)fail('Only the report owner may do that.',403);return row;}
   function storeImage(data){const img=validateImage(data);if(!img)return null;
     const filename=`${randomUUID()}.${img.ext}`;writeFileSync(join(uploadDir,filename),img.bytes,{flag:'wx'});return {file:filename,mime:img.mime};
@@ -154,6 +155,18 @@ export function createApp({dbPath=process.env.DATABASE_PATH||'server/data/campus
       if(method==='OPTIONS'){res.writeHead(204,{'Allow':'GET,POST,PATCH,DELETE,OPTIONS','Access-Control-Allow-Methods':'GET,POST,PATCH,DELETE,OPTIONS','Access-Control-Allow-Headers':'Content-Type'});return res.end();}
       if(path==='/api/health'&&method==='GET')return reply(res,200,{status:'ok',service:'CampusFind API',database:'sqlite'});
       if(path==='/api/auth/me'&&method==='GET')return reply(res,200,{user:publicUser(userFromRequest(req))});
+      if(path==='/api/profile'&&method==='GET'){
+        const user=requireUser(req);
+        return reply(res,200,{profile:privateProfile(user)});
+      }
+      if(path==='/api/profile'&&method==='PATCH'){
+        const user=requireUser(req),input=profileInput(await jsonBody(req)),updatedAt=now();
+        db.prepare(`UPDATE users SET name=?,about_me=?,department=?,year_of_study=?,profile_updated_at=? WHERE id=?`)
+          .run(input.name,input.aboutMe,input.department,input.yearOfStudy,updatedAt,user.id);
+        const updated=db.prepare('SELECT * FROM users WHERE id=?').get(user.id);
+        audit(user.id,'profile.update','user',user.id,'Profile details updated',req);
+        return reply(res,200,{profile:privateProfile(updated),user:publicUser(updated)});
+      }
       if(path==='/api/auth/register'&&method==='POST'){
         const input=validateCredentials(await jsonBody(req),true);
         const campusDomain=process.env.CAMPUS_EMAIL_DOMAIN?.trim().toLowerCase();

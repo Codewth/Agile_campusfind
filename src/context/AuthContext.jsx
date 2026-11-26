@@ -8,12 +8,17 @@ export function AuthProvider({children}){
   async function register(name,email,password){const result=await api('/auth/register',{method:'POST',body:{name,email,password}});setUser(result.user);return result;}
   async function login(email,password){const result=await api('/auth/login',{method:'POST',body:{email,password}});setUser(result.user);return result;}
   async function logout(){await api('/auth/logout',{method:'POST'});setUser(null);}
+  async function updateProfile(profile){
+    const result=await api('/profile',{method:'PATCH',body:profile});
+    setUser(result.user);
+    return result.profile;
+  }
   async function googleLogin(){
     const idToken=await signInWithGoogle();
     const result=await api('/auth/firebase',{method:'POST',body:{idToken}});
     setUser(result.user);
     return result;
   }
-  return <Context.Provider value={{user,loading,register,login,googleLogin,logout,configured:true}}>{children}</Context.Provider>;
+  return <Context.Provider value={{user,loading,register,login,googleLogin,logout,updateProfile,configured:true}}>{children}</Context.Provider>;
 }
 export const useAuth=()=>useContext(Context);

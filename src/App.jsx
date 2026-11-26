@@ -9,6 +9,7 @@ import MyReports from './pages/MyReports';
 import ItemDetails from './pages/ItemDetails';
 import Admin from './pages/Admin';
 import { Dashboard, Notifications, CampusMap, Inventory, Assistant, Messages, SavedItems } from './pages/Platform';
+import Profile from './pages/Profile';
 import { Spinner } from './components/UI';
 import { useAuth } from './context/AuthContext';
 import { humanError, subscribeReports } from './lib/data';
@@ -33,6 +34,7 @@ export default function App(){
     <Route path="/items/:id" element={<ItemDetails {...{reports,loading}}/>}/>
     <Route path="/admin" element={<Protected><Admin/></Protected>}/>
     <Route path="/dashboard" element={<Protected><Dashboard/></Protected>}/>
+    <Route path="/profile" element={<Protected><Profile/></Protected>}/>
     <Route path="/notifications" element={<Protected><Notifications/></Protected>}/>
     <Route path="/map" element={<CampusMap/>}/>
     <Route path="/messages" element={<Protected><Messages/></Protected>}/>

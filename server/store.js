@@ -7,7 +7,9 @@ export function openStore(file){
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
-  salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT NOT NULL);
+  salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT NOT NULL,
+  about_me TEXT NOT NULL DEFAULT '', department TEXT NOT NULL DEFAULT '',
+  year_of_study TEXT NOT NULL DEFAULT '', profile_updated_at TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at INTEGER NOT NULL);
@@ -94,6 +96,10 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   // Safe additive migrations for databases created by the first backend draft.
   const userColumns=db.prepare('PRAGMA table_info(users)').all().map(c=>c.name);
   if(!userColumns.includes('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
+  if(!userColumns.includes('about_me')) db.exec("ALTER TABLE users ADD COLUMN about_me TEXT NOT NULL DEFAULT ''");
+  if(!userColumns.includes('department')) db.exec("ALTER TABLE users ADD COLUMN department TEXT NOT NULL DEFAULT ''");
+  if(!userColumns.includes('year_of_study')) db.exec("ALTER TABLE users ADD COLUMN year_of_study TEXT NOT NULL DEFAULT ''");
+  if(!userColumns.includes('profile_updated_at')) db.exec("ALTER TABLE users ADD COLUMN profile_updated_at TEXT NOT NULL DEFAULT ''");
   const flagColumns=db.prepare('PRAGMA table_info(flags)').all().map(c=>c.name);
   if(!flagColumns.includes('status')) db.exec("ALTER TABLE flags ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
   const reportColumns=db.prepare('PRAGMA table_info(reports)').all().map(c=>c.name);
