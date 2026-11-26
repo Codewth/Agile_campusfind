@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server/app.js';
+import { locations } from '../src/lib/data.js';
 
 const tmp=mkdtempSync(join(tmpdir(),'campusfind-test-'));
 const dist=join(tmp,'dist');mkdirSync(dist);writeFileSync(join(dist,'index.html'),'<!doctype html><title>CampusFind test</title>');
@@ -23,6 +24,11 @@ test('SPA is served from the same backend origin',async()=>{
   assert.equal((await fetch(origin+'/missing.js')).status,404);
 });
 test('health check',async()=>{const r=await request('GET','/api/health');assert.equal(r.httpStatus,200);assert.equal(r.status,'ok');assert.equal(r.service,'CampusFind API');});
+test('campus map location list includes requested blocks and places',()=>{
+  for(const name of ['A Block','B Block','K Block','P Block','N Block','Gobbler','Paid Mess','Parking','LRC'])assert.ok(locations.includes(name),`${name} should be available`);
+  for(let i=1;i<=12;i++)assert.ok(locations.includes(`C Block C${i}`));
+  for(let i=1;i<=6;i++)assert.ok(locations.includes(`D Block D${i}`));
+});
 test('create account, login and restore session',async()=>{
   const a=await request('POST','/api/auth/register',{name:'Alice Example',email:'ALICE@example.edu',password:'StrongPassword9'},'alice');
   assert.equal(a.httpStatus,201);assert.equal(a.user.email,'alice@example.edu');

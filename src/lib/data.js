@@ -1,6 +1,12 @@
 // CampusFind REST API. The server, never the browser, owns session/auth and persistence.
 export const categories=['Electronics','ID cards','Keys','Books & notes','Bags','Accessories','Clothing','Water bottles','Other'];
-export const locations=['Library','Main gate','Cafeteria','Classroom','Hostel','Sports ground','Laboratory','Auditorium','Other'];
+export const locations=[
+  'A Block','B Block',
+  ...Array.from({length:12},(_,i)=>`C Block C${i+1}`),
+  ...Array.from({length:6},(_,i)=>`D Block D${i+1}`),
+  'K Block','P Block','N Block','Gobbler','Paid Mess','Parking','LRC',
+  'Library','Main gate','Cafeteria','Classroom','Hostel','Sports ground','Laboratory','Auditorium','Other'
+];
 export const humanError=e=>e?.message||'Something went wrong. Please try again.';
 export async function api(path,{method='GET',body}={}){
   let response;

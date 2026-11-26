@@ -2,7 +2,7 @@
 
 ## University platform features
 
-CampusFind now includes a responsive light/dark interface, personalised dashboard, campus zone map and heatmap, saved reports, private inventory, notifications, private recovery conversations, database-backed campus assistance, enhanced claim statuses, report timelines, renewal and administrator analytics. Estimates and match scores are never presented as proof of ownership.
+CampusFind now includes a responsive light/dark interface, personalised dashboard, an interactive schematic campus map with C Block C1–C12, D Block D1–D6, A/B/K/P/N Blocks, Gobbler, Paid Mess, Parking and LRC, location activity heatmap, saved reports, private inventory, notifications, private recovery conversations, database-backed campus assistance, enhanced claim statuses, report timelines, renewal and administrator analytics. Location markers open reports for that place. Map positions are schematic rather than surveyed coordinates; estimates and match scores are never presented as proof of ownership.
 
 CampusFind is a **working full-stack development project**, with a React/Vite/Tailwind frontend and its own **Node.js HTTP API + persistent SQLite backend**. It no longer needs Firebase credentials to run locally. This application is a proposed software implementation beyond the discovery-only *Agile Software Development – Submission 1* PDF; the sample interviews in that PDF are illustrative, not verified research evidence.
 
